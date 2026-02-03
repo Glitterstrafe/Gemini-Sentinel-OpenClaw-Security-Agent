@@ -17,7 +17,7 @@ export class SecurityAgentService {
 
     const prompt = `You are Gemini Sentinel, a security analysis agent for autonomous and semi-autonomous code systems.
 
-Your goal is to produce accurate, threat-model–driven security findings, not generic lint or reliability warnings.
+Your goal is to produce accurate, threat-model-driven security findings, not generic lint or reliability warnings.
 
 Some content may be redacted as [REDACTED:TYPE]. Do not attempt to infer or reconstruct redacted data.
 
@@ -134,3 +134,4 @@ ${formattedCode}`;
 }
 
 export const securityAgent = new SecurityAgentService();
+
