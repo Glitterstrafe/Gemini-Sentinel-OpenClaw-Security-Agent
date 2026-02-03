@@ -20,7 +20,7 @@ const CSP = [
   "object-src 'none'",
   "img-src 'self' data:",
   "font-src 'self' https://fonts.gstatic.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "style-src 'self' https://fonts.googleapis.com",
   "script-src 'self'",
   "connect-src 'self'",
 ].join("; ");

@@ -32,3 +32,4 @@ View your app in AI Studio: https://ai.studio/apps/drive/1RqKxAhjq29QfUvba1cxXhU
 
 - The Gemini API key only lives on the server (client never sees it).
 - Redaction is enabled by default to avoid sending secret-like strings in code samples.
+- CSP headers are enforced by the proxy server in production builds.

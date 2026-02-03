@@ -275,12 +275,23 @@ const AgentDashboard: React.FC = () => {
     }, {}) || {};
 
   const chartData = [
-    { name: 'Critical', value: severityCounts[Severity.CRITICAL] || 0, color: '#f87171' },
-    { name: 'High', value: severityCounts[Severity.HIGH] || 0, color: '#fb923c' },
-    { name: 'Medium', value: severityCounts[Severity.MEDIUM] || 0, color: '#facc15' },
-    { name: 'Low', value: severityCounts[Severity.LOW] || 0, color: '#60a5fa' },
-    { name: 'Needs Review', value: severityCounts[Severity.NEEDS_REVIEW] || 0, color: '#a78bfa' },
+    { name: 'Critical', value: severityCounts[Severity.CRITICAL] || 0, color: '#f87171', dotClass: 'bg-red-400' },
+    { name: 'High', value: severityCounts[Severity.HIGH] || 0, color: '#fb923c', dotClass: 'bg-orange-400' },
+    { name: 'Medium', value: severityCounts[Severity.MEDIUM] || 0, color: '#facc15', dotClass: 'bg-yellow-400' },
+    { name: 'Low', value: severityCounts[Severity.LOW] || 0, color: '#60a5fa', dotClass: 'bg-blue-400' },
+    { name: 'Needs Review', value: severityCounts[Severity.NEEDS_REVIEW] || 0, color: '#a78bfa', dotClass: 'bg-purple-400' },
   ].filter((entry) => entry.value > 0);
+
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const item = payload[0];
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-950/90 px-3 py-2 text-xs text-slate-200 shadow-lg">
+        <div className="font-semibold">{item.name}</div>
+        <div className="text-slate-400">{item.value}</div>
+      </div>
+    );
+  };
 
   const proxyBadge = {
     checking: { label: 'Checking', className: 'bg-slate-700/40 text-slate-300 border-slate-600/40' },
@@ -593,7 +604,7 @@ const AgentDashboard: React.FC = () => {
                   <div className="flex flex-wrap gap-2 mb-6">
                     {chartData.map((entry) => (
                       <div key={entry.name} className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></span>
+                        <span className={`w-2 h-2 rounded-full ${entry.dotClass}`}></span>
                         <span className="text-xs font-bold text-slate-300">
                           {entry.value} {entry.name}
                         </span>
@@ -630,14 +641,7 @@ const AgentDashboard: React.FC = () => {
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          border: '1px solid #334155',
-                          borderRadius: '8px',
-                        }}
-                        itemStyle={{ color: '#fff' }}
-                      />
+                      <Tooltip content={<CustomTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
