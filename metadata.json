@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Sentinel: OpenClaw Security Agent",
+  "description": "An AI-powered security analysis dashboard inspired by the OpenClaw AI initiative, using Gemini 3 Pro to detect, explain, and patch security vulnerabilities in code.",
+  "requestFramePermissions": []
+}
