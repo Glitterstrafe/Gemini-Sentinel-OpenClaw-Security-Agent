@@ -16,7 +16,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1RqKxAhjq29QfUvba1cxXhU
 1. Install dependencies:
    `npm install`
 2. Start the local proxy (stores the API key server-side):
-   `set GEMINI_API_KEY=YOUR_KEY && npm run server` (Windows PowerShell)
+   `$env:GEMINI_API_KEY="YOUR_KEY"; npm run server` (Windows PowerShell)
 3. Run the app:
    `npm run dev`
 4. Open the app at `http://localhost:3000`.
@@ -26,7 +26,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1RqKxAhjq29QfUvba1cxXhU
 1. Build the app:
    `npm run build`
 2. Start the server (serves `dist/` + API proxy):
-   `set GEMINI_API_KEY=YOUR_KEY && npm run start`
+   `$env:GEMINI_API_KEY="YOUR_KEY"; npm run start`
 
 ## Security Notes
 
