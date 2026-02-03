@@ -14,6 +14,7 @@ export interface Vulnerability {
   location: string;
   fix: string;
   explanation: string;
+  filePath: string; // New field to track which file the vulnerability is in
 }
 
 export interface AnalysisResult {
@@ -22,8 +23,9 @@ export interface AnalysisResult {
   riskScore: number;
 }
 
-export interface AgentStatus {
+export interface StagedFile {
   name: string;
-  status: 'IDLE' | 'ANALYZING' | 'PATCHING' | 'ERROR';
-  lastAction: string;
+  path: string;
+  content: string;
+  size: number;
 }

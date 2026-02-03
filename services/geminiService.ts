@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, Severity } from "../types";
+import { AnalysisResult, StagedFile } from "../types";
 
 export class SecurityAgentService {
   private ai: GoogleGenAI;
@@ -9,22 +9,27 @@ export class SecurityAgentService {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   }
 
-  async analyzeCode(code: string): Promise<AnalysisResult> {
-    const response = await this.ai.models.generateContent({
+  async analyzeFiles(files: StagedFile[]): Promise<AnalysisResult> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    
+    // Format files for the prompt
+    const formattedCode = files.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
+
+    const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
-      contents: `Analyze the following code for security vulnerabilities. Be thorough and consider common pitfalls like SQL injection, XSS, insecure dependencies, and logic flaws. 
+      contents: `Analyze the following source code files for security vulnerabilities. 
+      You are an autonomous security agent (Sentinel) part of the OpenClaw initiative.
+      Be thorough, look for cross-file vulnerabilities, data leaks, and common logic flaws.
       
-      Code to analyze:
-      \`\`\`
-      ${code}
-      \`\`\``,
+      CODE REPOSITORY TO ANALYZE:
+      ${formattedCode}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             summary: { type: Type.STRING },
-            riskScore: { type: Type.NUMBER, description: "0 to 100 risk score" },
+            riskScore: { type: Type.NUMBER },
             vulnerabilities: {
               type: Type.ARRAY,
               items: {
@@ -32,22 +37,20 @@ export class SecurityAgentService {
                 properties: {
                   id: { type: Type.STRING },
                   type: { type: Type.STRING },
-                  severity: { 
-                    type: Type.STRING, 
-                    description: "CRITICAL, HIGH, MEDIUM, or LOW" 
-                  },
+                  severity: { type: Type.STRING },
                   description: { type: Type.STRING },
-                  location: { type: Type.STRING },
+                  location: { type: Type.STRING, description: "Specific line or function" },
+                  filePath: { type: Type.STRING, description: "The relative path of the file containing this issue" },
                   fix: { type: Type.STRING, description: "The corrected code snippet" },
                   explanation: { type: Type.STRING }
                 },
-                required: ["id", "type", "severity", "description", "location", "fix", "explanation"]
+                required: ["id", "type", "severity", "description", "location", "filePath", "fix", "explanation"]
               }
             }
           },
           required: ["summary", "riskScore", "vulnerabilities"]
         },
-        thinkingConfig: { thinkingBudget: 4000 }
+        thinkingConfig: { thinkingBudget: 8000 }
       },
     });
 

@@ -1,43 +1,71 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import { securityAgent } from '../services/geminiService';
-import { AnalysisResult, Severity } from '../types';
+import { AnalysisResult, Severity, StagedFile } from '../types';
 import VulnerabilityCard from './VulnerabilityCard';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 const AgentDashboard: React.FC = () => {
-  const [code, setCode] = useState<string>(`// Example vulnerable code snippet
-function handleUserLogin(username, password) {
-  const query = "SELECT * FROM users WHERE username = '" + username + "' AND password = '" + password + "'";
-  db.execute(query);
-  
-  // Store session in cookie without security flags
-  document.cookie = "session_id=user123";
-}
-
-app.post('/api/profile', (req, res) => {
-  const userId = req.body.userId;
-  // Direct file access vulnerability
-  const profile = fs.readFileSync(\`/data/profiles/\${userId}.json\`);
-  res.send(profile);
-});`);
-  
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+
+    const newStagedFiles: StagedFile[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const text = await file.text();
+      // Skip binary-looking files (heuristic)
+      if (text.includes('\ufffd')) continue;
+      
+      newStagedFiles.push({
+        name: file.name,
+        path: file.webkitRelativePath || file.name,
+        content: text,
+        size: file.size
+      });
+    }
+
+    setStagedFiles(prev => [...prev, ...newStagedFiles]);
+    if (event.target) event.target.value = '';
+  };
+
+  const removeFile = (path: string) => {
+    setStagedFiles(prev => prev.filter(f => f.path !== path));
+  };
 
   const handleAnalyze = async () => {
-    if (!code.trim()) return;
+    if (stagedFiles.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await securityAgent.analyzeCode(code);
+      const data = await securityAgent.analyzeFiles(stagedFiles);
       setResult(data);
     } catch (err: any) {
-      setError(err.message || 'Failed to analyze code. Please check your API key.');
+      setError(err.message || 'Failed to analyze files. Please check your API key.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const generateFullIDEBatch = () => {
+    if (!result) return;
+    const prompt = `I need you to fix the following security vulnerabilities found in my project by Gemini Sentinel:\n\n` +
+      result.vulnerabilities.map(v => 
+        `[${v.severity}] in ${v.filePath} (${v.location})\n` +
+        `Issue: ${v.description}\n` +
+        `Suggested Fix:\n${v.fix}\n`
+      ).join('\n---\n\n') +
+      `Please apply these fixes precisely to the relevant files.`;
+    
+    navigator.clipboard.writeText(prompt);
+    alert('Full project security fix prompt copied to clipboard! Paste it into Cursor, Windsurf, or Copilot.');
   };
 
   const severityCounts = result?.vulnerabilities.reduce((acc: any, v) => {
@@ -54,46 +82,109 @@ app.post('/api/profile', (req, res) => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Left Column: Input */}
+      {/* Left Column: Input Management */}
       <div className="lg:col-span-5 space-y-6">
         <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 shadow-xl">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-white flex items-center">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
-              Code Input
+              Staged Source Code
             </h2>
             <div className="flex space-x-2">
-              <span className="w-3 h-3 rounded-full bg-red-500/50"></span>
-              <span className="w-3 h-3 rounded-full bg-yellow-500/50"></span>
-              <span className="w-3 h-3 rounded-full bg-green-500/50"></span>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+                multiple 
+                className="hidden" 
+              />
+              <input 
+                type="file" 
+                ref={folderInputRef} 
+                onChange={handleFileUpload} 
+                // @ts-ignore
+                webkitdirectory="" 
+                directory="" 
+                className="hidden" 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-200 transition-colors"
+              >
+                + Files
+              </button>
+              <button 
+                onClick={() => folderInputRef.current?.click()}
+                className="text-xs px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 rounded-lg border border-indigo-500/20 transition-colors"
+              >
+                + Folder
+              </button>
             </div>
           </div>
           
-          <div className="relative group">
-            <textarea
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="w-full h-[500px] bg-slate-950 text-slate-300 font-mono text-sm p-4 rounded-xl border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-none"
-              placeholder="Paste your source code here for security auditing..."
-            />
-            <div className="absolute top-2 right-2 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-               <button className="p-1.5 bg-slate-800 rounded text-slate-400 hover:text-white" title="Clear Code" onClick={() => setCode('')}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          <div className="bg-slate-950 rounded-xl border border-slate-800 h-[400px] overflow-y-auto custom-scrollbar">
+            {stagedFiles.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-12 h-12 bg-slate-900 rounded-lg flex items-center justify-center mb-4 text-slate-700">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
-               </button>
-            </div>
+                </div>
+                <p className="text-sm text-slate-500">No files staged for analysis</p>
+                <p className="text-[10px] text-slate-600 mt-2 uppercase tracking-widest font-bold">Upload project folder to begin</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-800">
+                {stagedFiles.map((file) => (
+                  <div key={file.path} className="flex items-center justify-between p-3 hover:bg-slate-900/50 transition-colors group">
+                    <div className="flex items-center space-x-3 overflow-hidden">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="text-xs font-mono text-slate-300 truncate" title={file.path}>{file.name}</span>
+                        <span className="text-[10px] text-slate-600 font-mono truncate">{file.path}</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => removeFile(file.path)}
+                      className="p-1.5 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between px-1">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+              {stagedFiles.length} {stagedFiles.length === 1 ? 'File' : 'Files'} Staged
+            </span>
+            {stagedFiles.length > 0 && (
+              <button 
+                onClick={() => setStagedFiles([])}
+                className="text-[10px] text-red-500/70 hover:text-red-500 font-bold uppercase tracking-widest transition-colors"
+              >
+                Clear All
+              </button>
+            )}
           </div>
 
           <button
             onClick={handleAnalyze}
-            disabled={loading || !code.trim()}
-            className={`w-full mt-6 py-3 px-6 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-lg ${
+            disabled={loading || stagedFiles.length === 0}
+            className={`w-full mt-6 py-4 px-6 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-lg ${
               loading 
                 ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
-                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20 active:scale-[0.98]'
+                : stagedFiles.length === 0 
+                  ? 'bg-slate-800 text-slate-600 border border-slate-700'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20 active:scale-[0.98]'
             }`}
           >
             {loading ? (
@@ -102,14 +193,14 @@ app.post('/api/profile', (req, res) => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <span>Agent Reasoning...</span>
+                <span>Sentinel Reasoning...</span>
               </>
             ) : (
               <>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 19.444a11.954 11.954 0 007.834-14.445 11.954 11.954 0 00-15.668 0z" />
                 </svg>
-                <span>Audit for Vulnerabilities</span>
+                <span>Initiate Security Audit</span>
               </>
             )}
           </button>
@@ -120,7 +211,7 @@ app.post('/api/profile', (req, res) => {
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                  </svg>
-                 <span className="font-bold">Analysis Failed</span>
+                 <span className="font-bold">Agent Offline</span>
               </div>
               {error}
             </div>
@@ -132,31 +223,26 @@ app.post('/api/profile', (req, res) => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              What is OpenClaw?
+              OpenClaw Autonomous Agents
            </h3>
-           <p className="text-sm text-slate-400 leading-relaxed">
-             OpenClaw refers to the shift towards <strong>Autonomous Software Security Agents</strong>. Using Gemini's reasoning capabilities, these agents autonomously scan repositories, identify zero-days, and generate PRs for security fixes without human intervention.
+           <p className="text-xs text-slate-400 leading-relaxed">
+             OpenClaw refers to the paradigm shift where <strong>AI Agents</strong> act as the primary maintainers of code security. Sentinel uses Gemini 3 Pro's huge context and reasoning budget to find deep logical flaws that traditional static analysis tools miss.
            </p>
-           <div className="mt-4 flex items-center space-x-2 text-xs font-medium text-slate-500 italic">
-             <span>Inspired by @iruletheworldmo</span>
-             <span className="h-1 w-1 bg-slate-600 rounded-full"></span>
-             <span>Gemini 3 Pro</span>
-           </div>
         </div>
       </div>
 
-      {/* Right Column: Results */}
+      {/* Right Column: Results Reporting */}
       <div className="lg:col-span-7 space-y-6">
         {!result && !loading && !error && (
           <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-slate-900/40 border-2 border-dashed border-slate-800 rounded-3xl p-12 text-center">
             <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6">
                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                </svg>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Ready for Analysis</h3>
+            <h3 className="text-xl font-bold text-white mb-2">Sentinel Deployment</h3>
             <p className="text-slate-500 max-w-md">
-              Deploy the Gemini Sentinel agent to perform a deep security audit on your source code.
+              Stage individual files or a project folder for a complete security landscape analysis.
             </p>
           </div>
         )}
@@ -175,19 +261,35 @@ app.post('/api/profile', (req, res) => {
             <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="flex-1">
-                  <h2 className="text-2xl font-bold text-white mb-2">Audit Report</h2>
-                  <p className="text-slate-400 text-sm leading-relaxed mb-4">{result.summary}</p>
-                  <div className="flex flex-wrap gap-3">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <h2 className="text-2xl font-bold text-white">Full Project Report</h2>
+                    <span className="bg-indigo-600/20 text-indigo-400 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border border-indigo-500/20">Verified Audit</span>
+                  </div>
+                  <p className="text-slate-400 text-sm leading-relaxed mb-6">{result.summary}</p>
+                  
+                  <div className="flex flex-wrap gap-2 mb-6">
                     {chartData.map((d) => (
-                      <div key={d.name} className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700">
+                      <div key={d.name} className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }}></span>
                         <span className="text-xs font-bold text-slate-300">{d.value} {d.name}</span>
                       </div>
                     ))}
                   </div>
+
+                  {result.vulnerabilities.length > 0 && (
+                    <button 
+                      onClick={generateFullIDEBatch}
+                      className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-600/10 active:scale-95"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                      </svg>
+                      <span>Copy Fix Prompt for IDE Chat</span>
+                    </button>
+                  )}
                 </div>
                 
-                <div className="w-full md:w-48 h-48 flex flex-col items-center justify-center relative">
+                <div className="w-full md:w-48 h-48 flex flex-col items-center justify-center relative bg-slate-900/50 rounded-2xl border border-slate-800">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -211,7 +313,7 @@ app.post('/api/profile', (req, res) => {
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-3xl font-black text-white">{result.riskScore}</span>
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Risk Score</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Project Risk</span>
                   </div>
                 </div>
               </div>
@@ -219,9 +321,18 @@ app.post('/api/profile', (req, res) => {
 
             {/* Vulnerability List */}
             <div className="space-y-4">
-              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest px-1">Detected Flaws ({result.vulnerabilities.length})</h3>
-              {result.vulnerabilities.map((vuln) => (
-                <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
+              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest px-1 flex items-center justify-between">
+                <span>Active Vulnerabilities ({result.vulnerabilities.length})</span>
+                {result.vulnerabilities.length > 0 && <span className="text-[10px] normal-case font-medium text-slate-600 italic">Sorted by severity</span>}
+              </h3>
+              
+              {result.vulnerabilities
+                .sort((a, b) => {
+                  const order = { [Severity.CRITICAL]: 0, [Severity.HIGH]: 1, [Severity.MEDIUM]: 2, [Severity.LOW]: 3 };
+                  return order[a.severity] - order[b.severity];
+                })
+                .map((vuln) => (
+                  <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
               ))}
             </div>
             
@@ -232,8 +343,8 @@ app.post('/api/profile', (req, res) => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="text-xl font-bold text-emerald-400 mb-2">Code Secure</h3>
-                <p className="text-slate-400">Gemini Sentinel found no vulnerabilities in the provided snippet.</p>
+                <h3 className="text-xl font-bold text-emerald-400 mb-2">Secure Foundation</h3>
+                <p className="text-slate-400">Gemini Sentinel has verified the codebase. No security flaws were detected.</p>
               </div>
             )}
           </div>
