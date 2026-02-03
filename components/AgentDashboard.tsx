@@ -43,15 +43,7 @@ const AgentDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [appliedFixes, setAppliedFixes] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return sessionStorage.getItem('gemini_api_key') || '';
-  });
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [rememberKey, setRememberKey] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return Boolean(sessionStorage.getItem('gemini_api_key'));
-  });
+  const [proxyStatus, setProxyStatus] = useState<'checking' | 'ready' | 'missing-key' | 'offline'>('checking');
   const [redactEnabled, setRedactEnabled] = useState(true);
   const [allowSensitiveFiles, setAllowSensitiveFiles] = useState(false);
   const [allowUnredactedSecrets, setAllowUnredactedSecrets] = useState(false);
@@ -66,13 +58,29 @@ const AgentDashboard: React.FC = () => {
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (rememberKey && apiKey.trim()) {
-      sessionStorage.setItem('gemini_api_key', apiKey.trim());
-    } else {
-      sessionStorage.removeItem('gemini_api_key');
-    }
-  }, [apiKey, rememberKey]);
+    let cancelled = false;
+
+    const checkProxy = async () => {
+      try {
+        const response = await fetch('/api/health');
+        if (!response.ok) throw new Error('Proxy unavailable');
+        const data = await response.json();
+        if (cancelled) return;
+        if (data?.status === 'ok') {
+          setProxyStatus(data.hasKey ? 'ready' : 'missing-key');
+        } else {
+          setProxyStatus('offline');
+        }
+      } catch {
+        if (!cancelled) setProxyStatus('offline');
+      }
+    };
+
+    checkProxy();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
@@ -182,8 +190,16 @@ const AgentDashboard: React.FC = () => {
 
   const handleAnalyze = async () => {
     if (stagedFiles.length === 0) return;
-    if (!apiKey.trim()) {
-      setError('Please provide a Gemini API key before running the audit.');
+    if (proxyStatus === 'missing-key') {
+      setError('Server proxy is missing GEMINI_API_KEY. Set it in the server environment.');
+      return;
+    }
+    if (proxyStatus === 'offline') {
+      setError('Proxy server is offline. Start the server and try again.');
+      return;
+    }
+    if (proxyStatus === 'checking') {
+      setError('Checking proxy status. Please retry in a moment.');
       return;
     }
 
@@ -202,7 +218,7 @@ const AgentDashboard: React.FC = () => {
 
     try {
       const filesToSend = redactEnabled ? redactedFiles : stagedFiles;
-      const data = await securityAgent.analyzeFiles(filesToSend, apiKey);
+      const data = await securityAgent.analyzeFiles(filesToSend);
       setResult(data);
 
       if (redactEnabled && summary.totalMatches > 0) {
@@ -211,7 +227,7 @@ const AgentDashboard: React.FC = () => {
         );
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to analyze files. Please check your API key.');
+      setError(err.message || 'Failed to analyze files. Please check the proxy server.');
     } finally {
       setLoading(false);
     }
@@ -266,6 +282,13 @@ const AgentDashboard: React.FC = () => {
     { name: 'Needs Review', value: severityCounts[Severity.NEEDS_REVIEW] || 0, color: '#a78bfa' },
   ].filter((entry) => entry.value > 0);
 
+  const proxyBadge = {
+    checking: { label: 'Checking', className: 'bg-slate-700/40 text-slate-300 border-slate-600/40' },
+    ready: { label: 'Ready', className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+    'missing-key': { label: 'Missing Key', className: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+    offline: { label: 'Offline', className: 'bg-red-500/10 text-red-400 border-red-500/20' },
+  }[proxyStatus];
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative">
       {notification && (
@@ -291,52 +314,24 @@ const AgentDashboard: React.FC = () => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.866-3.582 7-8 7m16 0c-4.418 0-8-3.134-8-7m8 0a8 8 0 10-16 0m16 0H4" />
               </svg>
-              API Key & Privacy
+              Proxy Status & Privacy
             </h2>
-            <span className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
-              Local Only
+            <span className="text-[10px] uppercase tracking-widest text-indigo-300 font-bold bg-indigo-500/10 px-2 py-1 rounded-full border border-indigo-500/20">
+              Server Proxy
             </span>
           </div>
 
-          <div className="mt-4">
-            <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Gemini API Key</label>
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Paste your API key"
-                className="flex-1 bg-slate-900/70 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-              />
-              <button
-                onClick={() => setShowApiKey((prev) => !prev)}
-                className="text-[10px] px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-              >
-                {showApiKey ? 'Hide' : 'Show'}
-              </button>
-              <button
-                onClick={() => setApiKey('')}
-                className="text-[10px] px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors"
-              >
-                Clear
-              </button>
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Proxy Status</span>
+              <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded-full border ${proxyBadge.className}`}>
+                {proxyBadge.label}
+              </span>
             </div>
-
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                id="rememberKey"
-                type="checkbox"
-                checked={rememberKey}
-                onChange={(event) => setRememberKey(event.target.checked)}
-                className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500"
-              />
-              <label htmlFor="rememberKey" className="text-xs text-slate-400">
-                Remember for this session only
-              </label>
+            <div className="text-xs text-slate-400 space-y-1">
+              <p>Requests are sent to the local proxy at <span className="font-mono text-slate-300">/api/analyze</span>.</p>
+              <p>Set <span className="font-mono text-slate-300">GEMINI_API_KEY</span> in the server environment to enable audits.</p>
             </div>
-            <p className="text-[10px] text-slate-500 mt-2">
-              The key is used only in your browser. It is not stored unless you opt in for this session.
-            </p>
           </div>
 
           <div className="mt-4 border-t border-slate-700/60 pt-4">
@@ -500,11 +495,11 @@ const AgentDashboard: React.FC = () => {
 
           <button
             onClick={handleAnalyze}
-            disabled={loading || stagedFiles.length === 0 || !apiKey.trim()}
+            disabled={loading || stagedFiles.length === 0 || proxyStatus !== 'ready'}
             className={`w-full mt-6 py-4 px-6 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-lg ${
               loading
                 ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                : stagedFiles.length === 0 || !apiKey.trim()
+                : stagedFiles.length === 0 || proxyStatus !== 'ready'
                   ? 'bg-slate-800 text-slate-600 border border-slate-700'
                   : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20 active:scale-[0.98]'
             }`}
@@ -527,8 +522,10 @@ const AgentDashboard: React.FC = () => {
             )}
           </button>
 
-          {!apiKey.trim() && (
-            <p className="text-[10px] text-amber-400 mt-2">Add a Gemini API key to run the audit.</p>
+          {proxyStatus !== 'ready' && (
+            <p className="text-[10px] text-amber-400 mt-2">
+              Proxy not ready. Ensure the server is running with GEMINI_API_KEY set.
+            </p>
           )}
 
           {error && (

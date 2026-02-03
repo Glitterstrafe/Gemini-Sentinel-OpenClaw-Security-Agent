@@ -15,12 +15,20 @@ View your app in AI Studio: https://ai.studio/apps/drive/1RqKxAhjq29QfUvba1cxXhU
 
 1. Install dependencies:
    `npm install`
-2. Run the app:
+2. Start the local proxy (stores the API key server-side):
+   `set GEMINI_API_KEY=YOUR_KEY && npm run server` (Windows PowerShell)
+3. Run the app:
    `npm run dev`
-3. Open the app and paste your Gemini API key in the in-app field.
+4. Open the app at `http://localhost:3000`.
+
+## Production Build
+
+1. Build the app:
+   `npm run build`
+2. Start the server (serves `dist/` + API proxy):
+   `set GEMINI_API_KEY=YOUR_KEY && npm run start`
 
 ## Security Notes
 
-- The API key is stored in memory (and optionally in session storage) within your browser only.
-- For production or shared environments, proxy Gemini requests through a server to avoid exposing keys in the client.
+- The Gemini API key only lives on the server (client never sees it).
 - Redaction is enabled by default to avoid sending secret-like strings in code samples.
