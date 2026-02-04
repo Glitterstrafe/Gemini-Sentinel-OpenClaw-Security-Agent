@@ -1,0 +1,12 @@
+# Security Lock File
+# Generated: 2026-02-04 08:26:40 UTC
+# Owner: runner
+# 
+# This file indicates that security permissions have been applied.
+# To modify files, you must be the owner: runner
+#
+# Permission scheme:
+#   - Source files: 600 (owner rw, others none)
+#   - Directories: 700 (owner rwx, others none)
+#   - Scripts: 700 (owner rwx, others none)
+#   - Secrets: 400 (owner r, others none)
