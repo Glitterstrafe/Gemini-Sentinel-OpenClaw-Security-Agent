@@ -5,6 +5,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = process.env.GEMINI_API_KEY || "";
+const API_AUTH_TOKEN = process.env.API_AUTH_TOKEN || "";
+const ALLOWED_IPS = process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(",").map(ip => ip.trim()) : [];
 const DIST_DIR = path.resolve(process.cwd(), "dist");
 
 const MAX_BODY_BYTES = 7 * 1024 * 1024;
@@ -44,6 +46,31 @@ const setSecurityHeaders = (res) => {
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("Content-Security-Policy", CSP);
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+};
+
+const getClientIp = (req) => {
+  return req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
+         req.headers["x-real-ip"] ||
+         req.socket.remoteAddress;
+};
+
+const isIpAllowed = (ip) => {
+  if (ALLOWED_IPS.length === 0) return true;
+  const normalizedIp = ip.replace(/^::ffff:/, "");
+  return ALLOWED_IPS.some(allowed => {
+    const normalizedAllowed = allowed.replace(/^::ffff:/, "");
+    return normalizedIp === normalizedAllowed || 
+           normalizedAllowed === "127.0.0.1" && normalizedIp === "::1" ||
+           normalizedAllowed === "::1" && normalizedIp === "127.0.0.1";
+  });
+};
+
+const checkAuth = (req) => {
+  if (!API_AUTH_TOKEN) return true;
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  return token === API_AUTH_TOKEN;
 };
 
 const sendJson = (res, status, payload) => {
@@ -253,12 +280,27 @@ const server = http.createServer(async (req, res) => {
   setSecurityHeaders(res);
 
   const url = new URL(req.url, `http://${req.headers.host}`);
+  const clientIp = getClientIp(req);
+
+  // IP whitelist check (if configured)
+  if (!isIpAllowed(clientIp)) {
+    res.writeHead(403);
+    res.end("Access denied: IP not allowed.");
+    return;
+  }
 
   if (req.method === "GET" && url.pathname === "/api/health") {
     return sendJson(res, 200, { status: "ok", hasKey: Boolean(API_KEY) });
   }
 
   if (req.method === "POST" && url.pathname === "/api/analyze") {
+    // Authentication check for sensitive operations
+    if (!checkAuth(req)) {
+      res.writeHead(401, { "WWW-Authenticate": "Bearer" });
+      res.end("Unauthorized: Invalid or missing authentication token.");
+      return;
+    }
+
     try {
       const body = await readBody(req);
       const payload = JSON.parse(body || "{}");
